@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>極致華麗生日慶祝屏</title>
+    <style>
+        body {
+            background-color: #050505;
+            color: white;
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        /* 控制面板樣式 */
+        #ui-panel {
+            position: absolute;
+            z-index: 100;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 0 40px rgba(255, 71, 87, 0.4);
+            width: 85%;
+            max-width: 400px;
+            text-align: center;
+            transition: opacity 0.5s ease, transform 0.5s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        #ui-panel.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.9);
+        }
+
+        .input-group { margin-bottom: 25px; text-align: left;}
+        label { display: block; margin-bottom: 10px; font-weight: bold; color: #ff6b81; font-size: 16px;}
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 15px;
+            font-size: 18px;
+            border-radius: 10px;
+            border: 2px solid #444;
+            background: #222;
+            color: white;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            border-color: #ff4757;
+        }
+
+        input[type="range"] { 
+            width: 100%; 
+            cursor: pointer; 
+            accent-color: #ff4757;
+        }
+
+        button.primary-btn {
+            width: 100%;
+            padding: 16px;
+            font-size: 20px;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff4757, #ff6b81);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(255, 71, 87, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button.primary-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 71, 87, 0.6);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        /* 重新設定按鈕 */
+        #resetBtn {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 101;
+            display: none;
+            cursor: pointer;
+            transition: background 0.3s;
+            backdrop-filter: blur(5px);
+        }
+
+        #resetBtn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-panel">
+        <h2 style="margin-top:0; margin-bottom: 25px; color: #fff;">🎉 生日派對設定</h2>
+        <div class="input-group">
+            <label>壽星名字</label>
+            <input type="text" id="nameInput" placeholder="請輸入名字" value="好朋友">
+        </div>
+        <div class="input-group">
+            <label>跑馬燈速度</label>
+            <input type="range" id="speedSlider" min="2" max="15" value="6">
+        </div>
+        <button id="startBtn" class="primary-btn">啟動華麗慶祝！</button>
+    </div>
+
+    <button id="resetBtn">重設</button>
+    <canvas id="mainCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiPanel = document.getElementById('ui-panel');
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const speedSlider = document.getElementById('speedSlider');
+        const nameInput = document.getElementById('nameInput');
+
+        let particles = [];
+        let balloons = [];
+        let textX = 0;
+        let textMsg = "";
+        let speed = 6;
+        let isRunning = false;
+        let audioCtx;
+        let animationFrameId;
+
+        // 初始化畫布尺寸 (處理 Retina 螢幕)
+        const dpr = window.devicePixelRatio || 1;
+        function initCanvas() {
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+
+        // --- 物件定義 ---
+
+        class Confetti {
+            constructor() {
+                this.x = Math.random() * window.innerWidth;
+                this.y = Math.random() * -window.innerHeight;
+                this.size = Math.random() * 8 + 6;
+                this.color = `hsl(${Math.random() * 360}, 100%, 60%)`;
+                this.speedY = Math.random() * 4 + 2;
+                this.speedX = Math.random() * 2 - 1;
+                this.rotation = Math.random() * 360;
+                this.spin = Math.random() * 8 - 4;
+            }
+            update() {
+                this.y += this.speedY;
+                this.x += this.speedX;
+                this.rotation += this.spin;
+                
+                // 落地後從上方重新出現
+                if (this.y > window.innerHeight) {
+                    this.y = -20;
+                    this.x = Math.random() * window.innerWidth;
+                }
+            }
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        class Balloon {
+            constructor() {
+                this.reset();
+                this.y = window.innerHeight + Math.random() * 500; // 初始在畫面下方分佈
+            }
+            reset() {
+                this.x = Math.random() * window.innerWidth;
+                this.y = window.innerHeight + 100;
+                this.size = Math.random() * 25 + 35;
+                this.color = `hsla(${Math.random() * 360}, 80%, 65%, 0.85)`;
+                this.speedY = Math.random() * 2 + 1.5;
+                this.swing = Math.random() * 1.5;
+                this.offset = Math.random() * 100;
+            }
+            update() {
+                this.y -= this.speedY;
+                this.x += Math.sin(this.y * 0.01 + this.offset) * this.swing;
+                if (this.y < -200) this.reset();
+            }
+            draw() {
+                // 氣球本體
+                ctx.beginPath();
+                ctx.fillStyle = this.color;
+                ctx.ellipse(this.x, this.y, this.size * 0.8, this.size, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 氣球反光 (立體感)
+                ctx.beginPath();
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.ellipse(this.x - this.size * 0.25, this.y - this.size * 0.4, this.size * 0.2, this.size * 0.3, Math.PI / 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 氣球打結處
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + this.size);
+                ctx.lineTo(this.x - 5, this.y + this.size + 8);
+                ctx.lineTo(this.x + 5, this.y + this.size + 8);
+                ctx.closePath();
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                // 氣球繩子 (補全未完成的部分)
+                ctx.beginPath();
+                ctx.strokeStyle = "rgba(255,255,255,0.4)";
+                ctx.lineWidth = 1.5;
+                ctx.moveTo(this.x, this.y + this.size + 8);
+                // 使用貝茲曲線畫出飄逸的繩子
+                ctx.quadraticCurveTo(this.x - 15, this.y + this.size + 30, this.x, this.y + this.size + 50);
+                ctx.quadraticCurveTo(this.x + 10, this.y + this.size + 70, this.x - 5, this.y + this.size + 90);
+                ctx.stroke();
+            }
+        }
+
+        // --- 核心邏輯 ---
+
+        function playCelebrationSound() {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+
+                const time = audioCtx.currentTime;
+                // 生日快樂歌的完整旋律 (頻率 f 與節拍 d)
+                const melody = [
+                    { f: 392.00, d: 0.5 }, { f: 392.00, d: 0.5 }, { f: 440.00, d: 1 }, { f: 392.00, d: 1 }, { f: 523.25, d: 1 }, { f: 493.88, d: 2 },
+                    { f: 392.00, d: 0.5 }, { f: 392.00, d: 0.5 }, { f: 440.00, d: 1 }, { f: 392.00, d: 1 }, { f: 587.33, d: 1 }, { f: 523.25, d: 2 },
+                    { f: 392.00, d: 0.5 }, { f: 392.00, d: 0.5 }, { f: 783.99, d: 1 }, { f: 659.25, d: 1 }, { f: 523.25, d: 1 }, { f: 493.88, d: 1 }, { f: 440.00, d: 2 },
+                    { f: 698.46, d: 0.5 }, { f: 698.46, d: 0.5 }, { f: 659.25, d: 1 }, { f: 523.25, d: 1 }, { f: 587.33, d: 1 }, { f: 523.25, d: 2 }
+                ];
+
+                const beatLength = 0.4; // 控制歌曲速度 (秒/拍)
+                let startTime = time;
+
+                melody.forEach((note) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    
+                    osc.type = 'triangle'; // 使用三角波讓聲音比較柔和，類似電子琴
+                    osc.frequency.value = note.f;
+                    
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    
+                    const noteDuration = note.d * beatLength;
+                    
+                    // 讓每個音符有漸入漸出的感覺 (Envelope)
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.3, startTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, startTime + noteDuration - 0.05);
+                    
+                    osc.start(startTime);
+                    osc.stop(startTime + noteDuration);
+                    
+                    startTime += noteDuration;
+                });
+            } catch (e) {
+                console.log("Audio playback blocked or not supported.");
+            }
+        }
+
+        function drawText() {
+            ctx.save();
+            
+            // 決定字體大小 (根據螢幕寬度自適應)
+            const fontSize = Math.min(window.innerWidth * 0.15, 150);
+            ctx.font = `900 ${fontSize}px 'PingFang TC', 'Microsoft JhengHei', sans-serif`;
+            ctx.textBaseline = 'middle';
+            
+            // 測量文字寬度
+            const metrics = ctx.measureText(textMsg);
+            const textWidth = metrics.width;
+
+            // 創建華麗的文字漸層
+            const gradient = ctx.createLinearGradient(textX, 0, textX + textWidth, 0);
+            gradient.addColorStop(0, '#ff9a9e');
+            gradient.addColorStop(0.5, '#fecfef');
+            gradient.addColorStop(1, '#a1c4fd');
+
+            // 發光陰影效果
+            ctx.shadowColor = 'rgba(255, 105, 180, 0.8)';
+            ctx.shadowBlur = 30;
+            ctx.fillStyle = gradient;
+            
+            const textY = window.innerHeight / 2;
+            ctx.fillText(textMsg, textX, textY);
+            
+            // 添加白色描邊增加立體感
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.strokeText(textMsg, textX, textY);
+
+            ctx.restore();
+
+            // 更新文字位置 (跑馬燈效果)
+            textX -= speed;
+            
+            // 當文字完全移出畫面左側時，從右側重新出現
+            if (textX < -textWidth - 50) {
+                textX = window.innerWidth + 50;
+            }
+        }
+
+        function animate() {
+            if (!isRunning) return;
+            
+            // 清除畫布，帶有些微拖影效果
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+            // 繪製背景氣球
+            balloons.forEach(balloon => {
+                balloon.update();
+                balloon.draw();
+            });
+
+            // 繪製主角文字
+            drawText();
+
+            // 繪製前景彩紙
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // --- 事件監聽 ---
+
+        startBtn.addEventListener('click', () => {
+            const name = nameInput.value.trim() || '好朋友';
+            speed = parseInt(speedSlider.value);
+            textMsg = `🎉 祝 ${name} 生日快樂！ Happy Birthday! 🎂✨`;
+
+            // 隱藏設定面板，顯示重設按鈕
+            uiPanel.classList.add('hidden');
+            resetBtn.style.display = 'block';
+
+            // 初始化特效物件
+            particles = Array.from({length: 150}, () => new Confetti());
+            balloons = Array.from({length: 25}, () => new Balloon());
+
+            // 重設文字起始位置
+            textX = window.innerWidth;
+            
+            // 播放音效與動畫
+            playCelebrationSound();
+            isRunning = true;
+            
+            // 確保不會重複啟動多個迴圈
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animate();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            isRunning = false;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            
+            // 停止音樂並重置音效上下文
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+            }
+            
+            // 顯示設定面板，隱藏重設按鈕
+            uiPanel.classList.remove('hidden');
+            resetBtn.style.display = 'none';
+            
+            // 完全清空畫面
+            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
